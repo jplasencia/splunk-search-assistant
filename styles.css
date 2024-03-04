@@ -2,6 +2,7 @@
 .examples td {padding-left: 5px; padding-right: 5px}
 .examples td {border: 1px solid white;font-family: "Splunk Platform Mono";
 }
+.help-popup {max-width: 500px;}
 .help-popup h3, .help-popup h4 {color: white !important}
 .help-popup h4 {margin-top: 0;}
 #infoPopup .code {border: 1px solid white; font-family: "Splunk Platform Mono"}

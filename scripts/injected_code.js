@@ -538,6 +538,14 @@ let command_reference = {
         ]
 
      },
+     "reltime": {
+      "description": "Creates one or more relative time fields and adds the field or fields to returned events. Each added relative time field provides a human-readable value of the difference between \"now\" (the start time of the search) and the timestamp value of a corresponding field in the returned event. Human-readable values look like 5 days ago, 1 minute ago, 2 years ago, and so on.",
+      "examples": [
+        "... | reltime",
+        "... | reltime timefield=earliest_time",
+        "... | reltime timefield=current_time prefix=reltime_now_",
+        "... | reltime timefield=\"max_time,min_time,current_time"
+      ]},
      "transpose": {
         "description": "Returns the specified number of rows (search results) as columns (list of field values), such that each search row becomes a column.",
         "examples":[
@@ -812,24 +820,32 @@ var observer = new MutationObserver(function(mutations) {
       let settings = JSON.parse(localStorage.getItem("SplunkCommentSettings"))
       retrieveSnippetsEventListener(editor)
 
+      window.addEventListener('keydown', function(event) {
+        if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key === 'R') {
+          window.postMessage({ type: "get_snippets", text: "Hello from the webpage!" }, "*");
+          event.preventDefault();
+          // Your code here
+        }
+      });
+
+
+      if (!window.snippetSaveListenerAdded) {
+        window.addEventListener('keydown', function(event) {
+          if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key === 'S') {
+            saveSnippet(editor)
+            event.preventDefault();
+            event.stopPropagation();
+            // Your code here
+          }
+        });
+        window.snippetSaveListenerAdded = true;
+      }
     // Add command to save a snippet
     editor.commands.addCommand({
       name: "saveSnippet",
       bindKey: {win: "Ctrl-Shift-S", mac: "Command-Shift-S"},
       exec: function(editor) {
-        var code = editor.getSelectedText();
-
-        if (code === "") {
-          editor.selectAll();
-          code = editor.getSelectedText();
-        }
-        var name = prompt("Enter a name for the snippet");
-        if (name) {
-          // Save the snippet to localStorage
-          var snippets = JSON.parse(localStorage.getItem("snippets") || "{}");
-          snippets[name] = code;
-          window.postMessage({ type: "save_snippet", name: name,code: code }, "*");
-        }
+        saveSnippet(editor)
       }
     });
 
@@ -854,21 +870,7 @@ var observer = new MutationObserver(function(mutations) {
           name: "CollapseComments",
           bindKey: {win: "Ctrl-'", mac: "Command-'"},
           exec: function(editor) {
-              if(!lineIsComment(editor)){
-                return
-              }
-
-              var cursorPosition = editor.getCursorPosition();
-              var lineText = editor.session.getLine(cursorPosition.row);
-              editor.navigateTo(cursorPosition.row,Math.floor(lineText.length/2))
-
-              var rows = selectCommentLine(editor)
-
-
-
-              Range=ace.require("ace/range").Range;
-              editor.session.addFold("........", new Range(rows.start,rows.startColumn+15,rows.end-1,rows.endColumn-3));
-              editor.navigateTo(cursorPosition.row,0)
+            foldLines(editor)
 
           },
           readOnly: false
@@ -883,6 +885,22 @@ var observer = new MutationObserver(function(mutations) {
           bindKey: {win: "Ctrl-,", mac: "Command-,"},
           exec: function(editor) {
             showCommandHelp(editor)
+
+              },
+              readOnly: false
+      });
+
+      editor.commands.addCommand({
+          name: "showCommandHelp",
+          bindKey: {win: "Ctrl-Shift-/", mac: "Command-Shift-/"},
+          exec: function(editor) {
+
+            if(lineIsComment(editor)){
+              toggleComments(editor)
+            }else{
+              toggleComments(editor)
+              foldLines(editor)
+            }
 
               },
               readOnly: false
@@ -952,52 +970,7 @@ var observer = new MutationObserver(function(mutations) {
               bindKey: {win: "Ctrl-/", mac: "Command-/"},
               exec: function(editor) {
 
-                  // Get the current cursor position
-                  var cursorPosition = editor.getCursorPosition();
-
-                  // Handle when the current line is a comment
-                  if(lineIsComment(editor)){
-                      // console.log("line is comment")
-                      // If the current line is a comment, it helps to start from the middle of the line, so let's move it there.
-                      var lineText = editor.session.getLine(cursorPosition.row);
-                      editor.navigateTo(cursorPosition.row,Math.floor(lineText.length/2))
-                      // Replace the backticks at the beginning
-                      var searchOptions = {
-                          backwards: true,
-                          wrap: true,
-                          caseSensitive: false,
-                          wholeWord: false,
-                          regExp: true
-                      };
-                      editor.find('```', searchOptions);
-                      editor.session.replace(editor.selection.getRange(), "")
-
-                      // Replace the backticks at the end
-                      var searchOptions = {
-                          backwards: false,
-                          wrap: true,
-                          caseSensitive: false,
-                          wholeWord: false,
-                          regExp: true
-                      };
-                      editor.find('```', searchOptions);
-                      editor.session.replace(editor.selection.getRange(), "")
-                      return
-                  }
-
-                  let lines = [];
-                  ranges = editor.selection.getAllRanges();
-                  var lineCount = editor.session.getLength();
-                  var start = ranges[0].start.row;
-                  var end = ranges[0].end.row;
-                  var sameLine = lineCount-1 == end;
-                  var appendChart = sameLine ? "" : "\n";
-
-                  // Insert ``` at the beginning of the selected lines
-                  editor.session.insert({row: start, column: 0}, '```');
-
-                  // Insert ``` at the end of the selected lines
-                  editor.session.insert({row: end, column: editor.session.getLine(end).length}, '```');
+                 toggleComments(editor)
 
 
           },
@@ -1209,6 +1182,7 @@ function selectCommentLine(editor){
         regExp: true
     };
     var ends = editor.find(searchString, searchOptions);
+
     editor.selection.setRange({start: {row: starts.start.row}, end: {row: ends.end.row+1}},-1)
     return {start: starts.start.row, end: ends.end.row+1, endColumn: ends.end.column, startColumn: starts.start.column}
 }
@@ -1227,4 +1201,91 @@ function findAndReplace(editor,searchFor,replaceWith,backwards){
 
         editor.find(searchFor, searchOptions);
         editor.session.replace(editor.selection.getRange(), replaceWith)
+}
+
+
+function saveSnippet(editor){
+  var code = editor.getSelectedText();
+
+  if (code === "") {
+    editor.selectAll();
+    code = editor.getSelectedText();
+  }
+  var name = prompt("Enter a name for the snippet");
+  if (name) {
+    // Save the snippet to localStorage
+    var snippets = JSON.parse(localStorage.getItem("snippets") || "{}");
+    snippets[name] = code;
+    window.postMessage({ type: "save_snippet", name: name,code: code }, "*");
+  }
+
+}
+
+
+function foldLines(editor){
+  if(!lineIsComment(editor)){
+    return
+  }
+
+  var cursorPosition = editor.getCursorPosition();
+  var lineText = editor.session.getLine(cursorPosition.row);
+  editor.navigateTo(cursorPosition.row,Math.floor(lineText.length/2))
+
+  var rows = selectCommentLine(editor)
+
+
+
+  Range=ace.require("ace/range").Range;
+  editor.session.addFold("........", new Range(rows.start,rows.startColumn+15,rows.end-1,rows.endColumn-3));
+  editor.navigateTo(cursorPosition.row,0)
+}
+
+
+function toggleComments(editor){
+   // Get the current cursor position
+   var cursorPosition = editor.getCursorPosition();
+
+   // Handle when the current line is a comment
+   if(lineIsComment(editor)){
+       // console.log("line is comment")
+       // If the current line is a comment, it helps to start from the middle of the line, so let's move it there.
+       var lineText = editor.session.getLine(cursorPosition.row);
+       editor.navigateTo(cursorPosition.row,Math.floor(lineText.length/2))
+       // Replace the backticks at the beginning
+       var searchOptions = {
+           backwards: true,
+           wrap: true,
+           caseSensitive: false,
+           wholeWord: false,
+           regExp: true
+       };
+       editor.find('```', searchOptions);
+       editor.session.replace(editor.selection.getRange(), "")
+
+       // Replace the backticks at the end
+       var searchOptions = {
+           backwards: false,
+           wrap: true,
+           caseSensitive: false,
+           wholeWord: false,
+           regExp: true
+       };
+       editor.find('```', searchOptions);
+       editor.session.replace(editor.selection.getRange(), "")
+       return
+   }
+
+   let lines = [];
+   ranges = editor.selection.getAllRanges();
+   var lineCount = editor.session.getLength();
+   var start = ranges[0].start.row;
+   var end = ranges[0].end.row;
+   var sameLine = lineCount-1 == end;
+   var appendChart = sameLine ? "" : "\n";
+
+   // Insert ``` at the beginning of the selected lines
+   editor.session.insert({row: start, column: 0}, '```');
+
+   // Insert ``` at the end of the selected lines
+   editor.session.insert({row: end, column: editor.session.getLine(end).length}, '```');
 }
